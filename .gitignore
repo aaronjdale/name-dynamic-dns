@@ -1,3 +1,4 @@
 /venv/
 /.idea/
 .updater_credentials
+.namedns_data
