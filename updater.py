@@ -1,13 +1,17 @@
-import pickle
 import requests
 import json
 import sys
 
-
+# data fille where to store config
 credential_filename = '.namedns_data'
 
 
 class NameAPI(object):
+    """
+    Interface for Name.com V4 API
+    see: https://www.name.com/api-docs/
+    create/modify/view credentials here: https://www.name.com/account/settings/api
+    """
     def __init__(self, username, api_key, domain):
         self.username = username
         self.api_key = api_key
@@ -15,6 +19,11 @@ class NameAPI(object):
         self.domain_name = domain
 
     def list_records(self):
+        """
+        Gets a list of all the records (A, ANAME, MX, etc) and all the details associated with it
+        see: https://www.name.com/api-docs/DNS#ListRecords
+        :return: dict
+        """
         endpoint = f'domains/{self.domain_name}/records'
 
         r = requests.get(f'{self.base_url}{endpoint}', auth=(self.username, self.api_key))
@@ -22,6 +31,13 @@ class NameAPI(object):
         return records
 
     def update_record(self, record_id, data):
+        """
+        Updates a record by ID with the specified json data.
+        see: https://www.name.com/api-docs/DNS#UpdateRecord
+        :param record_id:
+        :param data:
+        :return:
+        """
         endpoint = f'domains/{self.domain_name}/records/{record_id}'
         r = requests.put(f'{self.base_url}{endpoint}', auth=(self.username, self.api_key), data=json.dumps(data))
         response = json.loads(r.text)
@@ -29,6 +45,13 @@ class NameAPI(object):
 
 
 def query_yes_no(question, default='no'):
+    """
+    Console input for true/false input, stole this from somewh`ere on the internet but
+    don't remember exactly where
+    :param question:
+    :param default:
+    :return:
+    """
     valid = {"yes": True, "y": True, "ye": True,
              "no": False, "n": False}
     if default is None:
@@ -67,6 +90,7 @@ def main():
     data = dict()
 
     # load existing data
+    is_first_time_setup = False
     try:
         with open(credential_filename) as file:
             data = json.load(file)
@@ -74,48 +98,63 @@ def main():
         username = data['username']
         api_key = data['api_key']
         domain = data['domain']
-        record_data = data['records']
 
     except (FileNotFoundError, KeyError) as e:
         # need the username and api key
         username = data['username'] = input('username: ')
         api_key = data['api_key'] = input('api key: ')
         domain = data['domain'] = input('domain: ')
-        record_data = data['records'] = dict()
+        data['records'] = dict()
+        is_first_time_setup = True
 
+    # detect public ip
     public_ip = get_public_ip()
     print(f'public ip detected as: {public_ip}')
 
+    # get records from name account
     name_api = NameAPI(username=username, api_key=api_key, domain=domain)
     records = name_api.list_records()
 
-    a_records = [record for record in records if record['type'] == 'A']
+    # check whether the script should prompt for update
+    # either if it is the first time setup
+    # todo add --setup flag argument
+    should_prompt_to_update = is_first_time_setup
 
+    # only care about A records since they are the only ones that point to IP addresses
+    a_records = [record for record in records if record['type'] == 'A']
     for record in a_records:
         record_id = record['id']
-        record_name = record['domainName']
+        record_fqdn = record['fqdn']
         record_value = record['answer']
 
-        # if we don't know how to handle this record
-        if record_id not in record_data.keys():
-            # check if this should be managed
-            print(f'{record_name} currently points to: {record_value}')
-            record_data[record_id] = query_yes_no('automatically update? ')
+        # check to see if we should prompt for update
+        if should_prompt_to_update:
+            print(f'"{record_fqdn}" currently points to "{record_value}"')
+            # if the should_update_flags have changed, save them to the file
+            data['records'][str(record_id)] = query_yes_no('automatically update? ')
 
-        # update if flagged as true
-        if record_data[record_id] and record_value != public_ip:  # check if changed
-            name_api.update_record(record_id=record_id, data={
-                'answer': public_ip
-            })
-            print(f'entry updated: {record_value} > {public_ip}')
-        else:  # no change required
-            print(f'no change detected.')
+            # save file if records have changed
+            with open(credential_filename, 'w') as file:
+                json.dump(data, file)
 
-    data['records'] = record_data
-
-    # save file if records have changed
-    with open(credential_filename, 'w') as file:
-        json.dump(data, file)
+        # check to see if the update flag is set
+        has_update_flag = str(record_id) in data['records']
+        if has_update_flag:
+            # check if the record is flagged for automatic update
+            should_automatically_update = bool(data['records'][str(record_id)])
+            if should_automatically_update:
+                # check if the IP address has changed
+                if record_value != public_ip:  # check if changed
+                    name_api.update_record(record_id=record_id, data={
+                        'answer': public_ip
+                    })
+                    print(f'{record_fqdn} updated: "{record_value}" changed to "{public_ip}"')
+                else:
+                    print(f'{record_fqdn} has not changed: "{record_value}" == "{public_ip}"')
+            else:
+                print(f'{record_fqdn} has update set to false, skipping.')
+        else:
+            print(f'{record_fqdn} does not have update flag set, skipping.')
 
 
 if __name__ == '__main__':
