@@ -45,8 +45,8 @@ class NameAPI(object):
 
     def api_enabled(self):
         """
-        Makes an initial request, to the API for an expected value,
-        if the value is missing it will "report" the error to the user
+        Makes an initial request to the API for an expected value. 'serverName'.
+        If the value is missing it will "report" the error to the user and exit.
         see: https://www.name.com/api-docs/Hello#HelloFunc
         :return: bool
         """
