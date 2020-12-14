@@ -43,6 +43,24 @@ class NameAPI(object):
         response = json.loads(r.text)
         print(response)
 
+    def api_enabled(self):
+        """
+        Makes an initial request, to the API for an expected value,
+        if the value is missing it will "report" the error to the user
+        see: https://www.name.com/api-docs/Hello#HelloFunc
+        :return: bool
+        """
+        endpoint = 'hello'
+
+        r = requests.get(f'{self.base_url}{endpoint}', auth=(self.username, self.api_key))
+        response = json.loads(r.text)
+        if 'serverName' in response:
+            return True
+        else:
+            print(f'Initial API Request Failed - Exit Reason: \n{response}')
+            return False
+
+
 
 def query_yes_no(question, default='no'):
     """
@@ -113,6 +131,12 @@ def main():
 
     # get records from name account
     name_api = NameAPI(username=username, api_key=api_key, domain=domain)
+    
+    # Check if the api is enabled (correctly)
+    # Catches Two Factor and API Disabled
+    if name_api.api_enabled() == False:
+        sys.exit(1)
+
     records = name_api.list_records()
 
     # check whether the script should prompt for update
